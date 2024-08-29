@@ -1,5 +1,6 @@
 const { db } = require("../connection");
 const axios = require("axios");
+const uuid = require("uuid");
 
 // Storing all Meta Data
 async function handleMetaData(req, res) {
@@ -98,11 +99,61 @@ async function handleGetMetaData(req, res) {
       }
     }
 
-    res.json({ data, token });
+    if (data.order_id === 1) {
+      var request_id = uuid.v4();
+      return res.json({ data, token, request_id });
+    } else {
+      return res.json({ data, token });
+    }
   } catch (error) {
     console.error("Error fetching data:", error);
     res.status(500).json({ error: "Failed to fetch data" });
   }
 }
 
-module.exports = { handleMetaData, handleGetMetaData, handleGetFlows };
+async function handleFeedbackData(req, res) {
+  try {
+    const request_id = req.headers.request_id;
+    const { page_id, result } = req.body;
+
+    // Validate input
+    if (!page_id || !result || !request_id) {
+      return res.status(400).json({ msg: "All fields are required" });
+    }
+
+    // Check if feedback already exists
+    const [existingData] = await db.query(
+      "SELECT * FROM feedbacks WHERE page_id = ? AND request_id = ?",
+      [page_id, request_id]
+    );
+
+    if (existingData.length > 0) {
+      // Update existing feedback
+      await db.query(
+        "UPDATE feedbacks SET result = ? WHERE page_id = ? AND request_id = ?",
+        [JSON.stringify(result), page_id, request_id]
+      );
+      return res.json({ msg: "Feedback updated successfully" });
+    } else {
+      // Insert new feedback
+      const [data] = await db.query(
+        "INSERT INTO feedbacks (result, page_id, request_id) VALUES (?, ?, ?)",
+        [JSON.stringify(result), page_id, request_id]
+      );
+      return res.json({
+        msg: "Feedback saved successfully",
+        id: data.insertId,
+      });
+    }
+  } catch (error) {
+    console.error("Error handling feedback data:", error);
+    return res.status(500).json({ msg: "Internal Server Error" });
+  }
+}
+
+module.exports = {
+  handleMetaData,
+  handleGetMetaData,
+  handleGetFlows,
+  handleFeedbackData,
+};

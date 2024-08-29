@@ -4,6 +4,7 @@ const {
   handleMetaData,
   handleGetMetaData,
   handleGetFlows,
+  handleFeedbackData,
 } = require("../controllers/webController");
 
 // Store data
@@ -14,5 +15,8 @@ router.get("/flows", handleGetFlows);
 
 // Display data for mobile
 router.get("/data", handleGetMetaData);
+
+// Store Mobile Data
+router.post("/feedback", handleFeedbackData);
 
 module.exports = router;

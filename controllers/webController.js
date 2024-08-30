@@ -14,10 +14,10 @@ async function handleMetaData(req, res) {
     const flowId = flowResult.insertId;
 
     const promises = pages.map((page) => {
-      const { page_id, meta_data, order_id } = page;
+      const { step_type, meta_data, order_id } = page;
       return db.query(
-        "INSERT INTO pages (page_id, meta_data, order_id, flow_id) VALUES (?, ?, ?, ?)",
-        [page_id, JSON.stringify(meta_data), order_id, flowId]
+        "INSERT INTO pages (step_type, meta_data, order_id, flow_id) VALUES (?, ?, ?, ?)",
+        [step_type, JSON.stringify(meta_data), order_id, flowId]
       );
     });
 
@@ -52,6 +52,7 @@ async function handleGetMetaData(req, res) {
     if (req.headers.x_page_token) {
       const bufferObj = Buffer.from(req.headers.x_page_token, "base64");
       token = JSON.parse(bufferObj.toString("utf8"));
+      console.log(token);
       whereClause = "?";
       queryValues.push(token.next_order_id);
     }
@@ -79,28 +80,44 @@ async function handleGetMetaData(req, res) {
     if (data.meta_data) {
       for (const item of data.meta_data) {
         if (item.api) {
-          const apiUrls = Object.values(item.api);
-          const apiResponses = [];
+          //   console.log("item api", item.api);
+          const apiUrls = item.api.Url;
 
-          for (const apiUrl of apiUrls) {
+          let apiResponse = [];
+
+          if (Array.isArray(apiUrls)) {
+            // Fetch data from all URLs if apiUrls is an array
             try {
-              const response = await axios.get(apiUrl);
-              apiResponses.push(response.data);
+              const responses = await Promise.all(
+                apiUrls.map((url) => axios.get(url))
+              );
+              apiResponse = responses.map((response) => response.data);
             } catch (apiError) {
               console.error("API call error:", apiError);
               return res
                 .status(500)
-                .json({ error: "Error fetching data from API" });
+                .json({ msg: "Error fetching data from API" });
+            }
+          } else {
+            // Fetch data from a single URL if apiUrls is not an array
+            try {
+              const response = await axios.get(apiUrls);
+              apiResponse.push(response.data);
+            } catch (apiError) {
+              console.error("API call error:", apiError);
+              return res
+                .status(500)
+                .json({ msg: "Error fetching data from API" });
             }
           }
 
-          item.apiResponse = apiResponses.flat();
+          item.apiResponse = apiResponse.flat();
         }
       }
     }
 
     if (data.order_id === 1) {
-      var request_id = uuid.v4();
+      const request_id = uuid.v4();
       return res.json({ data, token, request_id });
     } else {
       return res.json({ data, token });
@@ -127,7 +144,7 @@ async function handleFeedbackData(req, res) {
       [page_id, request_id]
     );
 
-    if (existingData.length > 0) {
+    if (existingData.length > 1) {
       // Update existing feedback
       await db.query(
         "UPDATE feedbacks SET result = ? WHERE page_id = ? AND request_id = ?",

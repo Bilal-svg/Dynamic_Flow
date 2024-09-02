@@ -168,9 +168,19 @@ async function handleFeedbackData(req, res) {
   }
 }
 
+async function handleGetMobileData(req, res) {
+  const { request_id } = req.headers;
+  const [listStoredFeedback] = await db.query(
+    "SELECT * FROM feedbacks WHERE request_id = ?",
+    [request_id]
+  );
+  return res.json(listStoredFeedback);
+}
+
 module.exports = {
   handleMetaData,
   handleGetMetaData,
   handleGetFlows,
   handleFeedbackData,
+  handleGetMobileData,
 };

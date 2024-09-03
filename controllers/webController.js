@@ -88,7 +88,7 @@ async function handleGetMetaData(req, res) {
           if (Array.isArray(apiUrls)) {
             // Fetch data from all URLs if apiUrls is an array
             try {
-              if (item.api.Type === "post") {
+              if (item.api.Type === "get") {
                 const responses = await Promise.all(
                   apiUrls.map((url) => axios.get(url))
                 );
@@ -113,11 +113,37 @@ async function handleGetMetaData(req, res) {
           } else {
             // Fetch data from a single URL if apiUrls is not an array
             try {
-              if (item.api.Type === "post") {
-                console.log("Why Here");
-                const response = await axios.get(apiUrls);
-                apiResponse.push(response.data);
+              if (item.api.Type === "get") {
+                const apiUrl = item.api.Url;
+                const fields = item.api.Success.Response.field;
+
+                try {
+                  // Make the GET request to the external API
+                  apiResponse = await axios.get(apiUrl);
+
+                  const apiData = apiResponse.data;
+
+                  // Filter the data to include only the selected fields
+                  const filteredData = apiData.map((item) => {
+                    let selectedData = {};
+                    fields.forEach((field) => {
+                      if (item.hasOwnProperty(field)) {
+                        selectedData[field] = item[field];
+                      }
+                    });
+                    return selectedData;
+                  });
+
+                  apiResponse = { ...filteredData };
+                } catch (error) {
+                  // Handle errors
+                  console.error("Error fetching data from API:", error);
+                  res.status(500).json({ error: "Internal Server Error" });
+                }
               }
+              //   else {
+
+              //   }
             } catch (apiError) {
               console.error("API call error:", apiError);
               return res
@@ -125,7 +151,9 @@ async function handleGetMetaData(req, res) {
                 .json({ msg: "Error fetching data from API" });
             }
           }
-          item.api.Success.Response.field = apiResponse.flat();
+
+          item.api.Success.Response.data = apiResponse;
+
           //   item.apiResponse = apiResponse.flat();
         }
       }

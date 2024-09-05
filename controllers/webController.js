@@ -22,10 +22,10 @@ async function handleMetaData(req, res) {
     });
 
     await Promise.all(promises);
-    res.status(200).json({ message: "Data saved successfully!" });
+    return res.status(200).json({ message: "Data saved successfully!" });
   } catch (error) {
     console.error("Error saving data:", error);
-    res.status(500).json({ error: "Failed to save data" });
+    return res.status(500).json({ error: "Failed to save data" });
   }
 }
 
@@ -33,10 +33,10 @@ async function handleMetaData(req, res) {
 async function handleGetFlows(req, res) {
   try {
     const [flows] = await db.query("SELECT * FROM flows");
-    res.json(flows);
+    return res.json(flows);
   } catch (error) {
     console.error("Error fetching flows:", error);
-    res.status(500).json({ error: "Failed to fetch flows" });
+    return res.status(500).json({ error: "Failed to fetch flows" });
   }
 }
 
@@ -85,32 +85,33 @@ async function handleGetMetaData(req, res) {
 
           let apiResponse = [];
 
-          if (Array.isArray(apiUrls)) {
-            // Fetch data from all URLs if apiUrls is an array
-            try {
-              if (item.api.Type === "get") {
-                const responses = await Promise.all(
-                  apiUrls.map((url) => axios.get(url))
-                );
-                apiResponse = responses.map((response) => response.data);
-              }
-              //    else {
+          //   if (Array.isArray(apiUrls)) {
+          //     // Fetch data from all URLs if apiUrls is an array
+          //     try {
+          //       if (item.api.Type === "get") {
+          //         const responses = await Promise.all(
+          //           apiUrls.map((url) => axios.get(url))
+          //         );
+          //         apiResponse = responses.map((response) => response.data);
+          //       }
+          //       //    else {
 
-              // const postdata = {
+          //       // const postdata = {
 
-              // }
-              //     const responses = await Promise.all(
-              //       apiUrls.map((url) => axios.post(url, postdata))
-              //     );
-              //     apiResponse = responses.map((response) => response.data);
-              //   }
-            } catch (apiError) {
-              console.error("API call error:", apiError);
-              return res
-                .status(500)
-                .json({ msg: "Error fetching data from API" });
-            }
-          } else {
+          //       // }
+          //       //     const responses = await Promise.all(
+          //       //       apiUrls.map((url) => axios.post(url, postdata))
+          //       //     );
+          //       //     apiResponse = responses.map((response) => response.data);
+          //       //   }
+          //     } catch (apiError) {
+          //       console.error("API call error:", apiError);
+          //       return res
+          //         .status(500)
+          //         .json({ msg: "Error fetching data from API" });
+          //     }
+          //   } else
+          {
             // Fetch data from a single URL if apiUrls is not an array
             try {
               if (item.api.Type === "get") {
@@ -120,6 +121,10 @@ async function handleGetMetaData(req, res) {
                 try {
                   // Make the GET request to the external API
                   apiResponse = await axios.get(apiUrl);
+                  //   console.log(
+                  //     "🚀 ~ handleGetMetaData ~ apiResponse:",
+                  //     apiResponse
+                  //   );
 
                   const apiData = apiResponse.data;
 
@@ -138,21 +143,103 @@ async function handleGetMetaData(req, res) {
                 } catch (error) {
                   // Handle errors
                   console.error("Error fetching data from API:", error);
-                  res.status(500).json({ error: "Internal Server Error" });
+                  return res
+                    .status(500)
+                    .json({ error: "Internal Server Error" });
                 }
-              }
-              //   else {
+                item.api.Success.Response.data = apiResponse;
+              } else {
+                const apiUrl = item.api.Url;
+                console.log("🚀 ~ handleGetMetaData ~ apiUrl:", apiUrl);
+                const body = item.api.Body;
+                const pageId = item.api.Body.id;
 
-              //   }
+                // const [postData] = await db.query(
+                //   "SELECT page_id,result FROM feedbacks WHERE page_id = ? LIMIT 1",
+                //   [pageId]
+                // );
+                // console.log("🚀 ~ handleGetMetaData ~ postData:", postData);
+
+                // const postData = {
+                //   id: "page1.Response.id", // Replace with actual data as needed
+                //   sku: "req.body.sku", // Replace with actual data as needed
+                // };
+
+                try {
+                  //   const fieldExists = async (field) => {
+                  //     const [rows] = await db.query(
+                  //       `SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'feedbacks' AND COLUMN_NAME = ?`,
+                  //       [field]
+                  //     );
+                  //     return rows[0].count > 0;
+                  //   };
+
+                  //   const postData = body.map(async (field) => {
+                  //     if (await fieldExists(field)) {
+                  //       const [rows] = await db.query(
+                  //         `SELECT \`${field}\` FROM feedbacks WHERE page_id = ? LIMIT 1`,
+                  //         [pageId]
+                  //       );
+                  //       return rows;
+                  //     }
+                  //   });
+
+                  //   // Wait for all queries to complete
+                  //   const results = await Promise.all(postData);
+
+                  const [feedbackResult] = await db.query(
+                    `
+                    SELECT feedbacks.result 
+                    FROM feedbacks 
+                    JOIN pages ON feedbacks.page_id = pages.id 
+                    WHERE pages.order_id = ? AND pages.flow_id = ?
+                    `,
+                    [body.id, req.query.flow_id]
+                  );
+
+                  // Check if result has an entry
+                  if (feedbackResult.length === 0) {
+                    throw new Error(
+                      "No feedback found for the given order_id and flow_id"
+                    );
+                  }
+
+                  // Extract the result
+                  const results = feedbackResult[0].result;
+                  console.log("🚀 ~ handleGetMetaData ~ result:", results);
+
+                  let postData = {};
+                  console.log(typeof body);
+                  const bodyKeys = Object.keys(body);
+                  const dataToPost = bodyKeys.map((field) => {
+                    if (result.hasOwnProperty(field)) {
+                      postData[field] = results[field];
+                    }
+                    return postData;
+                  });
+
+                  // Make the GET request to the external API
+                  const apiResponse = await axios.post(apiUrl, postData, {
+                    headers: {
+                      "Content-Type": "application/json",
+                    },
+                  });
+                } catch (error) {
+                  // Handle errors
+                  console.error("Error fetching data from API:", error);
+                  return res
+                    .status(500)
+                    .json({ error: "Internal Server Error" });
+                }
+                item.api.Success.Response.data = apiResponse;
+              }
             } catch (apiError) {
               console.error("API call error:", apiError);
               return res
                 .status(500)
-                .json({ msg: "Error fetching data from API" });
+                .json({ msg: "Error fetching data from API", error });
             }
           }
-
-          item.api.Success.Response.data = apiResponse;
 
           //   item.apiResponse = apiResponse.flat();
         }
@@ -167,17 +254,17 @@ async function handleGetMetaData(req, res) {
     }
   } catch (error) {
     console.error("Error fetching data:", error);
-    res.status(500).json({ error: "Failed to fetch data" });
+    return res.status(500).json({ error: "Failed to fetch data" });
   }
 }
 
 async function handleFeedbackData(req, res) {
   try {
     const request_id = req.headers.request_id;
-    const { page_id, result } = req.body;
+    const { page_id, result, flow_id } = req.body;
 
     // Validate input
-    if (!page_id || !result || !request_id) {
+    if (!page_id || !result || !request_id || !flow_id) {
       return res.status(400).json({ msg: "All fields are required" });
     }
 

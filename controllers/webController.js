@@ -40,13 +40,81 @@ async function handleGetFlows(req, res) {
   }
 }
 
+async function handlePostFlows(req, res) {
+  const x = req.body;
+  console.log(x);
+  return res.json("Successfully got Data");
+}
+
+async function handleGetFlowData(req, res) {
+  const [pages] = await db.query(
+    "SELECT step_type,meta_data,flow_id,order_id FROM pages WHERE flow_id = ? and isDeleted = ?",
+    [req.query.flow_id, false]
+  );
+  return res.json({ pages });
+}
+
+async function handleUpdateFlow(req, res) {
+  //   const { flow_id } = req.query;
+  //   const pages = req.body.pages;
+
+  //   const promises = pages.map(async (page) => {
+  //     const { step_type, meta_data, order_id } = page;
+  //     const [update] = await db.query(
+  //       "UPDATE pages SET step_type = ?, meta_data = ? WHERE flow_id = ? and order_id =?",
+  //       [step_type, JSON.stringify(meta_data), flow_id, order_id]
+  //     );
+  //   });
+
+  //   const [updateFlow] = await db.query("SELECT * FROM pages WHERE flow_id = ?", [
+  //     flow_id,
+  //   ]);
+  //   console.log("🚀 ~ handleUpdateFlow ~ updateFlow:", updateFlow);
+  //   const updatedFlow = await Promise.all(updateFlow);
+
+  //   console.log("🚀 ~ handleUpdateFlow ~ updatedFlow:", updatedFlow);
+  //   return res
+  //     .status(200)
+  //     .json({ message: "Data saved successfully!", updatedFlow });
+
+  try {
+    const { flow_id } = req.query;
+    const { pages } = req.body;
+
+    try {
+      const [deleted] = await db.query(
+        "UPDATE pages SET isDeleted = TRUE WHERE flow_id = ?",
+        [flow_id]
+      );
+      console.log(`Rows affected: ${deleted.affectedRows}`);
+    } catch (error) {
+      console.error("Error updating pages:", error);
+    }
+
+    const promises = pages.map((page) => {
+      const { step_type, meta_data, order_id } = page;
+      return db.query(
+        "INSERT INTO pages (step_type, meta_data, order_id, flow_id) VALUES (?, ?, ?, ?)",
+        [step_type, JSON.stringify(meta_data), order_id, flow_id]
+      );
+    });
+
+    await Promise.all(promises);
+    return res.status(200).json({ message: "Data saved successfully!" });
+  } catch (error) {
+    console.error("Error saving data:", error);
+    return res.status(500).json({ error: "Failed to save data" });
+  }
+}
+
 // Sending single record/row from the database
 async function handleGetMetaData(req, res) {
   try {
     const { flow_id } = req.query;
     let token = null;
 
-    let whereClause = "(SELECT MIN(order_id) FROM pages WHERE flow_id = ?)";
+    let whereClause =
+      "(SELECT MIN(order_id) FROM pages WHERE flow_id = ? and isDeleted = FALSE)";
     let queryValues = [];
 
     if (req.headers.x_page_token) {
@@ -59,7 +127,7 @@ async function handleGetMetaData(req, res) {
 
     queryValues.push(flow_id);
     queryValues.push(flow_id);
-    const query = `SELECT * FROM pages WHERE order_id = ${whereClause} AND flow_id = ? LIMIT 1`;
+    const query = `SELECT * FROM pages WHERE order_id = ${whereClause} AND flow_id = ? AND isDeleted = FALSE LIMIT 1`;
 
     let [data] = await db.query(query, queryValues);
     data = data[0];
@@ -67,7 +135,7 @@ async function handleGetMetaData(req, res) {
     // Verify if next page exists
     token = null;
     const [orderInfo] = await db.query(
-      "SELECT order_id FROM pages WHERE order_id = ? AND flow_id = ? LIMIT 1",
+      "SELECT order_id FROM pages WHERE order_id = ? AND flow_id = ? AND isDeleted = FALSE LIMIT 1",
       [data.order_id + 1, flow_id]
     );
     if (orderInfo.length > 0) {
@@ -152,6 +220,7 @@ async function handleGetMetaData(req, res) {
                 const apiUrl = item.api.Url;
                 console.log("🚀 ~ handleGetMetaData ~ apiUrl:", apiUrl);
                 const body = item.api.Body;
+                console.log("🚀 ~ handleGetMetaData ~ body:", body);
                 const pageId = item.api.Body.id;
 
                 // const [postData] = await db.query(
@@ -192,9 +261,13 @@ async function handleGetMetaData(req, res) {
                     SELECT feedbacks.result 
                     FROM feedbacks 
                     JOIN pages ON feedbacks.page_id = pages.id 
-                    WHERE pages.order_id = ? AND pages.flow_id = ?
+                    WHERE pages.order_id = ? AND pages.flow_id = ? 
                     `,
                     [body.id, req.query.flow_id]
+                  );
+                  console.log(
+                    "🚀 ~ handleGetMetaData ~ feedbackResult:",
+                    feedbackResult
                   );
 
                   // Check if result has an entry
@@ -212,7 +285,7 @@ async function handleGetMetaData(req, res) {
                   console.log(typeof body);
                   const bodyKeys = Object.keys(body);
                   const dataToPost = bodyKeys.map((field) => {
-                    if (result.hasOwnProperty(field)) {
+                    if (results.hasOwnProperty(field)) {
                       postData[field] = results[field];
                     }
                     return postData;
@@ -231,6 +304,7 @@ async function handleGetMetaData(req, res) {
                     .status(500)
                     .json({ error: "Internal Server Error" });
                 }
+                console.log("🚀 ~ handleGetMetaData ~ flow_id:", flow_id);
                 item.api.Success.Response.data = apiResponse;
               }
             } catch (apiError) {
@@ -311,6 +385,9 @@ module.exports = {
   handleMetaData,
   handleGetMetaData,
   handleGetFlows,
+  handlePostFlows,
+  handleUpdateFlow,
+  handleGetFlowData,
   handleFeedbackData,
   handleGetMobileData,
 };

@@ -113,8 +113,7 @@ async function handleGetMetaData(req, res) {
     const { flow_id } = req.query;
     let token = null;
 
-    let whereClause =
-      "(SELECT MIN(order_id) FROM pages WHERE flow_id = ? and isDeleted = FALSE)";
+    let whereClause = `(SELECT (MIN(order_id) +1) FROM pages WHERE flow_id = ? and isDeleted = FALSE)`;
     let queryValues = [];
 
     if (req.headers.x_page_token) {
@@ -124,7 +123,6 @@ async function handleGetMetaData(req, res) {
       whereClause = "?";
       queryValues.push(token.next_order_id);
     }
-
     queryValues.push(flow_id);
     queryValues.push(flow_id);
     const query = `SELECT * FROM pages WHERE order_id = ${whereClause} AND flow_id = ? AND isDeleted = FALSE LIMIT 1`;
@@ -144,12 +142,18 @@ async function handleGetMetaData(req, res) {
       token = buffer.toString("base64");
     }
 
+    let [apistep] = await db.query(
+      "SELECT * FROM pages WHERE order_id=? AND flow_id = ? AND isDeleted = FALSE",
+      [0, flow_id]
+    );
+    apistep = apistep[0];
+
     // Fetching data from associated APIs
     if (data.meta_data) {
       for (const item of data.meta_data) {
         if (item.api) {
           //   console.log("item api", item.api);
-          const apiUrls = item.api.Url;
+          //   const apiUrls = item.api.Url;
 
           let apiResponse = [];
 
@@ -180,11 +184,22 @@ async function handleGetMetaData(req, res) {
           //     }
           //   } else
           {
+            // const apiObject = apistep.meta_data.filter(
+            //   (api) => api.name === item.api
+            // );
+            // const apiObject = apistep.meta_data.filter(
+            //   (meta) => meta.name === item.api
+            // );
+
+            const [apiObject] = apistep.meta_data.filter(
+              (meta) => meta.name === item.api
+            );
+
             // Fetch data from a single URL if apiUrls is not an array
             try {
-              if (item.api.Type === "get") {
-                const apiUrl = item.api.Url;
-                const fields = item.api.Success.Response.field;
+              if (apiObject.details.Type === "get") {
+                const apiUrl = apiObject.details.Url;
+                const fields = apiObject.details.Success.Response.field;
 
                 try {
                   // Make the GET request to the external API
@@ -195,6 +210,7 @@ async function handleGetMetaData(req, res) {
                   //   );
 
                   const apiData = apiResponse.data;
+                  // console.log("🚀 ~ handleGetMetaData ~ apiData:", apiData);
 
                   // Filter the data to include only the selected fields
                   const filteredData = apiData.map((item) => {
@@ -207,7 +223,7 @@ async function handleGetMetaData(req, res) {
                     return selectedData;
                   });
 
-                  apiResponse = { ...filteredData };
+                  apiResponse = { filteredData };
                 } catch (error) {
                   // Handle errors
                   console.error("Error fetching data from API:", error);
@@ -215,13 +231,13 @@ async function handleGetMetaData(req, res) {
                     .status(500)
                     .json({ error: "Internal Server Error" });
                 }
-                item.api.Success.Response.data = apiResponse;
+                item.apidata = apiResponse;
               } else {
-                const apiUrl = item.api.Url;
+                const apiUrl = apiObject.details.Url;
                 console.log("🚀 ~ handleGetMetaData ~ apiUrl:", apiUrl);
-                const body = item.api.Body;
+                const body = apiObject.details.Body;
                 console.log("🚀 ~ handleGetMetaData ~ body:", body);
-                const pageId = item.api.Body.id;
+                const pageId = apiObject.details.Body.id;
 
                 // const [postData] = await db.query(
                 //   "SELECT page_id,result FROM feedbacks WHERE page_id = ? LIMIT 1",
@@ -291,7 +307,7 @@ async function handleGetMetaData(req, res) {
                     return postData;
                   });
 
-                  // Make the GET request to the external API
+                  // Make the POST request to the external API
                   const apiResponse = await axios.post(apiUrl, postData, {
                     headers: {
                       "Content-Type": "application/json",
@@ -305,7 +321,7 @@ async function handleGetMetaData(req, res) {
                     .json({ error: "Internal Server Error" });
                 }
                 console.log("🚀 ~ handleGetMetaData ~ flow_id:", flow_id);
-                item.api.Success.Response.data = apiResponse;
+                item.api.postdata = apiResponse;
               }
             } catch (apiError) {
               console.error("API call error:", apiError);
@@ -314,8 +330,6 @@ async function handleGetMetaData(req, res) {
                 .json({ msg: "Error fetching data from API", error });
             }
           }
-
-          //   item.apiResponse = apiResponse.flat();
         }
       }
     }

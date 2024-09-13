@@ -5,7 +5,7 @@ const uuid = require("uuid");
 // Storing all Meta Data
 async function handleMetaData(req, res) {
   try {
-    const { flow_name, pages } = req.body;
+    const { flow_name, pages, variable } = req.body;
 
     const [flowResult] = await db.query(
       "INSERT INTO flows (flow_name) VALUES (?)",
@@ -22,6 +22,13 @@ async function handleMetaData(req, res) {
     });
 
     await Promise.all(promises);
+
+    const [variabledata] = await db.query(
+      "INSERT INTO flowvariables (variables, flow_id) VALUES (?, ?)",
+      [JSON.stringify(variable), flowId]
+    );
+    console.log("🚀 ~ handleMetaData ~ variabledata:", variabledata);
+
     return res.status(200).json({ message: "Data saved successfully!" });
   } catch (error) {
     console.error("Error saving data:", error);
@@ -146,11 +153,13 @@ async function handleGetMetaData(req, res) {
       "SELECT * FROM pages WHERE order_id=? AND flow_id = ? AND isDeleted = FALSE",
       [0, flow_id]
     );
+    // console.log("🚀 ~ handleGetMetaData ~ apistep:", apistep);
     apistep = apistep[0];
 
     // Fetching data from associated APIs
     if (data.meta_data) {
       for (const item of data.meta_data) {
+        // console.log("🚀 ~ handleGetMetaData ~ item:", item);
         if (item.api) {
           //   console.log("item api", item.api);
           //   const apiUrls = item.api.Url;
@@ -194,6 +203,7 @@ async function handleGetMetaData(req, res) {
             const [apiObject] = apistep.meta_data.filter(
               (meta) => meta.name === item.api
             );
+            // console.log("🚀 ~ handleGetMetaData ~ apiObject:", apiObject);
 
             // Fetch data from a single URL if apiUrls is not an array
             try {
@@ -375,6 +385,7 @@ async function handleFeedbackData(req, res) {
         "INSERT INTO feedbacks (result, page_id, request_id) VALUES (?, ?, ?)",
         [JSON.stringify(result), page_id, request_id]
       );
+
       return res.json({
         msg: "Feedback saved successfully",
         id: data.insertId,

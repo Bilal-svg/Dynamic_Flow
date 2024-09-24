@@ -120,7 +120,7 @@ async function handleGetMetaData(req, res) {
     const { flow_id } = req.query;
     let token = null;
 
-    let whereClause = `(SELECT (MIN(order_id) +1) FROM pages WHERE flow_id = ? and isDeleted = FALSE)`;
+    let whereClause = `(SELECT MIN(order_id)  FROM pages WHERE order_id!= 0 AND flow_id = ? and isDeleted = FALSE)`;
     let queryValues = [];
 
     if (req.headers.x_page_token) {
@@ -149,195 +149,153 @@ async function handleGetMetaData(req, res) {
       token = buffer.toString("base64");
     }
 
-    let [apistep] = await db.query(
+    let [apidetails] = await db.query(
       "SELECT * FROM pages WHERE order_id=? AND flow_id = ? AND isDeleted = FALSE",
       [0, flow_id]
     );
     // console.log("🚀 ~ handleGetMetaData ~ apistep:", apistep);
-    apistep = apistep[0];
+    apidetails = apidetails[0];
 
-    // Fetching data from associated APIs
     if (data.meta_data) {
       for (const item of data.meta_data) {
-        // console.log("🚀 ~ handleGetMetaData ~ item:", item);
-        if (item.api) {
-          //   console.log("item api", item.api);
-          //   const apiUrls = item.api.Url;
+        let xyz = null;
+        let varMatch = null;
 
-          let apiResponse = [];
+        for (let input of item.inputs) {
+          for (let key in input) {
+            const value = input[key];
 
-          //   if (Array.isArray(apiUrls)) {
-          //     // Fetch data from all URLs if apiUrls is an array
-          //     try {
-          //       if (item.api.Type === "get") {
-          //         const responses = await Promise.all(
-          //           apiUrls.map((url) => axios.get(url))
-          //         );
-          //         apiResponse = responses.map((response) => response.data);
-          //       }
-          //       //    else {
+            if (Array.isArray(value)) {
+              value.forEach((val) => {
+                if (
+                  typeof val === "string" &&
+                  val.includes("{{") &&
+                  val.includes("}}")
+                ) {
+                  xyz = key;
+                  varMatch = val.replace(/\{\{(.*?)\}\}/, "$1").trim();
+                }
+              });
+            }
+          }
 
-          //       // const postdata = {
-
-          //       // }
-          //       //     const responses = await Promise.all(
-          //       //       apiUrls.map((url) => axios.post(url, postdata))
-          //       //     );
-          //       //     apiResponse = responses.map((response) => response.data);
-          //       //   }
-          //     } catch (apiError) {
-          //       console.error("API call error:", apiError);
-          //       return res
-          //         .status(500)
-          //         .json({ msg: "Error fetching data from API" });
-          //     }
-          //   } else
-          {
-            // const apiObject = apistep.meta_data.filter(
-            //   (api) => api.name === item.api
-            // );
-            // const apiObject = apistep.meta_data.filter(
-            //   (meta) => meta.name === item.api
-            // );
-
-            const [apiObject] = apistep.meta_data.filter(
-              (meta) => meta.name === item.api
+          if (xyz && input.hasOwnProperty(xyz)) {
+            const [apiFieldCheck] = apidetails.meta_data.filter(
+              (meta) => meta.details.Success.Response.Variable === varMatch
             );
-            // console.log("🚀 ~ handleGetMetaData ~ apiObject:", apiObject);
 
-            // Fetch data from a single URL if apiUrls is not an array
-            try {
-              if (apiObject.details.Type === "get") {
-                const apiUrl = apiObject.details.Url;
-                const fields = apiObject.details.Success.Response.field;
+            if (!apiFieldCheck) continue;
 
-                try {
-                  // Make the GET request to the external API
-                  apiResponse = await axios.get(apiUrl);
-                  //   console.log(
-                  //     "🚀 ~ handleGetMetaData ~ apiResponse:",
-                  //     apiResponse
-                  //   );
+            const httpType = apiFieldCheck.details.Type.toLowerCase();
 
-                  const apiData = apiResponse.data;
-                  // console.log("🚀 ~ handleGetMetaData ~ apiData:", apiData);
+            if (httpType === "get") {
+              const apiUrl = apiFieldCheck.details.Url;
 
-                  // Filter the data to include only the selected fields
-                  const filteredData = apiData.map((item) => {
-                    let selectedData = {};
-                    fields.forEach((field) => {
-                      if (item.hasOwnProperty(field)) {
-                        selectedData[field] = item[field];
-                      }
-                    });
-                    return selectedData;
-                  });
-
-                  apiResponse = { filteredData };
-                } catch (error) {
-                  // Handle errors
-                  console.error("Error fetching data from API:", error);
-                  return res
-                    .status(500)
-                    .json({ error: "Internal Server Error" });
-                }
-                item.apidata = apiResponse;
-              } else {
-                const apiUrl = apiObject.details.Url;
-                console.log("🚀 ~ handleGetMetaData ~ apiUrl:", apiUrl);
-                const body = apiObject.details.Body;
-                console.log("🚀 ~ handleGetMetaData ~ body:", body);
-                const pageId = apiObject.details.Body.id;
-
-                // const [postData] = await db.query(
-                //   "SELECT page_id,result FROM feedbacks WHERE page_id = ? LIMIT 1",
-                //   [pageId]
-                // );
-                // console.log("🚀 ~ handleGetMetaData ~ postData:", postData);
-
-                // const postData = {
-                //   id: "page1.Response.id", // Replace with actual data as needed
-                //   sku: "req.body.sku", // Replace with actual data as needed
-                // };
-
-                try {
-                  //   const fieldExists = async (field) => {
-                  //     const [rows] = await db.query(
-                  //       `SELECT COUNT(*) as count FROM INFORMATION_SCHEMA.COLUMNS WHERE TABLE_NAME = 'feedbacks' AND COLUMN_NAME = ?`,
-                  //       [field]
-                  //     );
-                  //     return rows[0].count > 0;
-                  //   };
-
-                  //   const postData = body.map(async (field) => {
-                  //     if (await fieldExists(field)) {
-                  //       const [rows] = await db.query(
-                  //         `SELECT \`${field}\` FROM feedbacks WHERE page_id = ? LIMIT 1`,
-                  //         [pageId]
-                  //       );
-                  //       return rows;
-                  //     }
-                  //   });
-
-                  //   // Wait for all queries to complete
-                  //   const results = await Promise.all(postData);
-
-                  const [feedbackResult] = await db.query(
-                    `
-                    SELECT feedbacks.result 
-                    FROM feedbacks 
-                    JOIN pages ON feedbacks.page_id = pages.id 
-                    WHERE pages.order_id = ? AND pages.flow_id = ? 
-                    `,
-                    [body.id, req.query.flow_id]
-                  );
-                  console.log(
-                    "🚀 ~ handleGetMetaData ~ feedbackResult:",
-                    feedbackResult
-                  );
-
-                  // Check if result has an entry
-                  if (feedbackResult.length === 0) {
-                    throw new Error(
-                      "No feedback found for the given order_id and flow_id"
-                    );
-                  }
-
-                  // Extract the result
-                  const results = feedbackResult[0].result;
-                  console.log("🚀 ~ handleGetMetaData ~ result:", results);
-
-                  let postData = {};
-                  console.log(typeof body);
-                  const bodyKeys = Object.keys(body);
-                  const dataToPost = bodyKeys.map((field) => {
-                    if (results.hasOwnProperty(field)) {
-                      postData[field] = results[field];
-                    }
-                    return postData;
-                  });
-
-                  // Make the POST request to the external API
-                  const apiResponse = await axios.post(apiUrl, postData, {
-                    headers: {
-                      "Content-Type": "application/json",
-                    },
-                  });
-                } catch (error) {
-                  // Handle errors
-                  console.error("Error fetching data from API:", error);
-                  return res
-                    .status(500)
-                    .json({ error: "Internal Server Error" });
-                }
-                console.log("🚀 ~ handleGetMetaData ~ flow_id:", flow_id);
-                item.api.postdata = apiResponse;
+              if (Array.isArray(apiUrl)) {
+                return res.json({
+                  msg: "Url key has multiple values, only a single value is required",
+                });
               }
-            } catch (apiError) {
-              console.error("API call error:", apiError);
-              return res
-                .status(500)
-                .json({ msg: "Error fetching data from API", error });
+
+              let params = "";
+              let firstParam = true;
+
+              for (let fld in apiFieldCheck.details.Param) {
+                if (firstParam) {
+                  firstParam = false;
+                  params += "?";
+                } else {
+                  params += "&";
+                }
+
+                let paramValue = "";
+                let [searching] = await db.query(
+                  "SELECT * FROM flowvariables WHERE flow_id = ?",
+                  [data.flow_id]
+                );
+                searching = searching[0];
+
+                if (!searching) {
+                  console.log("No Variables data found");
+                }
+
+                const variables = searching.variable;
+                for (let item of variables) {
+                  if (item.key === apiFieldCheck.details.Param[fld]) {
+                    let [mobileData] = await db.query(
+                      "SELECT feedbacks.* FROM feedbacks JOIN pages ON feedbacks.page_id = pages.id WHERE pages.flow_id = ?",
+                      [data.flow_id]
+                    );
+                    const mobileDatas = mobileData[0];
+                    paramValue = mobileDatas.result[item.key];
+                  }
+                }
+
+                params += `${fld}=${paramValue}`;
+              }
+
+              let API_URL = `${apiUrl}${params}`;
+              const response = await axios.get(API_URL);
+              const apiResponse = response.data;
+
+              let extractedData = [];
+
+              if (apiFieldCheck.details.Success.Response.field.length > 0) {
+                extractedData = apiResponse.map((data) => {
+                  let extData = {};
+                  for (let fld of apiFieldCheck.details.Success.Response
+                    .field) {
+                    extData[fld] = data[fld];
+                  }
+                  return extData;
+                });
+              } else {
+                extractedData = null;
+              }
+
+              input[xyz] = extractedData;
+            } else if (httpType === "post") {
+              const apiUrl = apiFieldCheck.details.Url;
+
+              if (Array.isArray(apiUrl)) {
+                return res.json({
+                  msg: "Url key has multiple values, only a single value is required",
+                });
+              }
+
+              let body = {};
+              for (let [key, value] of Object.entries(
+                apiFieldCheck.details.Body
+              )) {
+                const match = value.replace(/\{\{(.*?)\}\}/, "$1").trim();
+
+                let [searching] = await db.query(
+                  "SELECT * FROM flowvariables WHERE flow_id = ?",
+                  [data.flow_id]
+                );
+                searching = searching[0];
+
+                if (!searching) {
+                  console.log("No Variables found");
+                }
+
+                const variables = searching.variable;
+                for (let item of variables) {
+                  if (item.key === match) {
+                    let [mobileData] = await db.query(
+                      "SELECT feedbacks.* FROM feedbacks JOIN pages ON feedbacks.page_id = pages.id WHERE pages.flow_id = ?",
+                      [data.flow_id]
+                    );
+                    const mobileDatas = mobileData[0];
+                    if (mobileDatas) {
+                      body[key] = mobileDatas.result[item.key];
+                    }
+                  }
+                }
+              }
+
+              const response = await axios.post(apiUrl, body);
+              // Handle post response if needed
             }
           }
         }
@@ -354,6 +312,12 @@ async function handleGetMetaData(req, res) {
     console.error("Error fetching data:", error);
     return res.status(500).json({ error: "Failed to fetch data" });
   }
+}
+
+function extractVariableName(templateString) {
+  // Regex to match the template format {{variable}}
+  const match = templateString.match(/{{(.*?)}}/);
+  return match ? match[1] : null;
 }
 
 async function handleFeedbackData(req, res) {

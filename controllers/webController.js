@@ -120,20 +120,20 @@ async function handleGetMetaData(req, res) {
     const { flow_id } = req.query;
     let token = null;
 
-    let whereClause = `(SELECT MIN(order_id)  FROM pages WHERE order_id!= 0 AND flow_id = ? and isDeleted = FALSE)`;
+    let whereClause = `(SELECT MIN(order_id) FROM pages WHERE order_id != 0 AND flow_id = ? AND isDeleted = FALSE)`;
     let queryValues = [];
 
     if (req.headers.x_page_token) {
       const bufferObj = Buffer.from(req.headers.x_page_token, "base64");
       token = JSON.parse(bufferObj.toString("utf8"));
-      console.log(token);
       whereClause = "?";
       queryValues.push(token.next_order_id);
     }
-    queryValues.push(flow_id);
-    queryValues.push(flow_id);
-    const query = `SELECT * FROM pages WHERE order_id = ${whereClause} AND flow_id = ? AND isDeleted = FALSE LIMIT 1`;
 
+    queryValues.push(flow_id);
+    queryValues.push(flow_id);
+
+    const query = `SELECT * FROM pages WHERE order_id = ${whereClause} AND flow_id = ? AND isDeleted = FALSE LIMIT 1`;
     let [data] = await db.query(query, queryValues);
     data = data[0];
 
@@ -150,152 +150,162 @@ async function handleGetMetaData(req, res) {
     }
 
     let [apidetails] = await db.query(
-      "SELECT * FROM pages WHERE order_id=? AND flow_id = ? AND isDeleted = FALSE",
+      "SELECT * FROM pages WHERE order_id = ? AND flow_id = ? AND isDeleted = FALSE",
       [0, flow_id]
     );
-    // console.log("🚀 ~ handleGetMetaData ~ apistep:", apistep);
     apidetails = apidetails[0];
 
     if (data.meta_data) {
       for (const item of data.meta_data) {
-        let xyz = null;
-        let varMatch = null;
+        if (item.inputs) {
+          for (let input of item.inputs) {
+            let xyz = null;
+            let varMatch = null;
 
-        for (let input of item.inputs) {
-          for (let key in input) {
-            const value = input[key];
-
-            if (Array.isArray(value)) {
-              value.forEach((val) => {
-                if (
-                  typeof val === "string" &&
-                  val.includes("{{") &&
-                  val.includes("}}")
-                ) {
-                  xyz = key;
-                  varMatch = val.replace(/\{\{(.*?)\}\}/, "$1").trim();
-                }
-              });
+            for (let key in input) {
+              const value = input[key];
+              if (Array.isArray(value)) {
+                value.forEach((val) => {
+                  if (
+                    typeof val === "string" &&
+                    val.includes("{{") &&
+                    val.includes("}}")
+                  ) {
+                    xyz = key;
+                    varMatch = val.replace(/\{\{(.*?)\}\}/, "$1").trim();
+                  }
+                });
+              }
             }
-          }
 
-          if (xyz && input.hasOwnProperty(xyz)) {
-            const [apiFieldCheck] = apidetails.meta_data.filter(
-              (meta) => meta.details.Success.Response.Variable === varMatch
-            );
+            if (xyz && input.hasOwnProperty(xyz)) {
+              for (let apiObj of apidetails) {
+                if (
+                  apiObj.meta_data[0].details.Success.Response.Variable ===
+                  varMatch
+                ) {
+                  let httpType = apiObj.meta_data[0].details.Type.toLowerCase();
+                  const flowid = data.flow_id;
+                  const apiUrls = apiObj.meta_data[0].details.Url;
 
-            if (!apiFieldCheck) continue;
-
-            const httpType = apiFieldCheck.details.Type.toLowerCase();
-
-            if (httpType === "get") {
-              const apiUrl = apiFieldCheck.details.Url;
-
-              if (Array.isArray(apiUrl)) {
-                return res.json({
-                  msg: "Url key has multiple values, only a single value is required",
-                });
-              }
-
-              let params = "";
-              let firstParam = true;
-
-              for (let fld in apiFieldCheck.details.Param) {
-                if (firstParam) {
-                  firstParam = false;
-                  params += "?";
-                } else {
-                  params += "&";
-                }
-
-                let paramValue = "";
-                let [searching] = await db.query(
-                  "SELECT * FROM flowvariables WHERE flow_id = ?",
-                  [data.flow_id]
-                );
-                searching = searching[0];
-
-                if (!searching) {
-                  console.log("No Variables data found");
-                }
-
-                const variables = searching.variable;
-                for (let item of variables) {
-                  if (item.key === apiFieldCheck.details.Param[fld]) {
-                    let [mobileData] = await db.query(
-                      "SELECT feedbacks.* FROM feedbacks JOIN pages ON feedbacks.page_id = pages.id WHERE pages.flow_id = ?",
-                      [data.flow_id]
-                    );
-                    const mobileDatas = mobileData[0];
-                    paramValue = mobileDatas.result[item.key];
+                  if (Array.isArray(apiUrls)) {
+                    return res.json({
+                      msg: "Url key has multiple values, only single is required",
+                    });
                   }
-                }
 
-                params += `${fld}=${paramValue}`;
-              }
+                  if (httpType === "get") {
+                    let params = "";
+                    let firstParam = true;
 
-              let API_URL = `${apiUrl}${params}`;
-              const response = await axios.get(API_URL);
-              const apiResponse = response.data;
+                    for (let fld in apiObj.meta_data[0].details.Param) {
+                      if (firstParam) {
+                        firstParam = false;
+                        params += "?";
+                      } else {
+                        params += "&";
+                      }
 
-              let extractedData = [];
+                      let paramsUrl = [];
+                      let [searching] = await db.query(
+                        "SELECT * FROM flowvariables WHERE flow_id = ?",
+                        [flowid]
+                      );
+                      searching = searching[0];
 
-              if (apiFieldCheck.details.Success.Response.field.length > 0) {
-                extractedData = apiResponse.map((data) => {
-                  let extData = {};
-                  for (let fld of apiFieldCheck.details.Success.Response
-                    .field) {
-                    extData[fld] = data[fld];
-                  }
-                  return extData;
-                });
-              } else {
-                extractedData = null;
-              }
+                      if (!searching) {
+                        console.log("No Variables data found");
+                      }
 
-              input[xyz] = extractedData;
-            } else if (httpType === "post") {
-              const apiUrl = apiFieldCheck.details.Url;
-
-              if (Array.isArray(apiUrl)) {
-                return res.json({
-                  msg: "Url key has multiple values, only a single value is required",
-                });
-              }
-
-              let body = {};
-              for (let [key, value] of Object.entries(
-                apiFieldCheck.details.Body
-              )) {
-                const match = value.replace(/\{\{(.*?)\}\}/, "$1").trim();
-
-                let [searching] = await db.query(
-                  "SELECT * FROM flowvariables WHERE flow_id = ?",
-                  [data.flow_id]
-                );
-                searching = searching[0];
-
-                if (!searching) {
-                  console.log("No Variables found");
-                }
-
-                const variables = searching.variable;
-                for (let item of variables) {
-                  if (item.key === match) {
-                    let [mobileData] = await db.query(
-                      "SELECT feedbacks.* FROM feedbacks JOIN pages ON feedbacks.page_id = pages.id WHERE pages.flow_id = ?",
-                      [data.flow_id]
-                    );
-                    const mobileDatas = mobileData[0];
-                    if (mobileDatas) {
-                      body[key] = mobileDatas.result[item.key];
+                      const variables = searching.variable;
+                      for (let item of variables) {
+                        if (
+                          item.key === apiObj.meta_data[0].details.Param[fld]
+                        ) {
+                          let [mobileData] = await db.query(
+                            "SELECT feedbacks.* FROM feedbacks JOIN pages ON feedbacks.page_id = pages.id WHERE pages.flow_id = ?",
+                            [flowid]
+                          );
+                          const mobileDatas = mobileData[0];
+                          let reqVariables = mobileDatas.result[item.key];
+                          paramsUrl.push(reqVariables);
+                        }
+                      }
+                      params += fld + "=" + paramsUrl;
                     }
+
+                    let API_URL = apiUrls + params;
+                    const response = await axios.get(API_URL);
+                    let apiResponse = response.data;
+
+                    let extractedData;
+                    if (
+                      apiObj.meta_data[0].details.Success.Response.field
+                        .length > 0
+                    ) {
+                      if (Array.isArray(apiResponse)) {
+                        extractedData = apiResponse.map((data) => {
+                          let extData = {};
+                          for (let fld of apiObj.meta_data[0].details.Success
+                            .Response.field) {
+                            extData[fld] = data[fld];
+                          }
+                          return extData;
+                        });
+                      } else {
+                        let extData = {};
+                        for (let fld of apiObj.meta_data[0].details.Success
+                          .Response.field) {
+                          extData[fld] = apiResponse[fld];
+                        }
+                        extractedData = [extData];
+                      }
+                    } else {
+                      extractedData = null;
+                    }
+                    input[xyz] = extractedData;
+                  } else if (httpType === "post") {
+                    let body = apiObj.meta_data[0].details.Body;
+                    const entries = Object.entries(body);
+                    let reqVariablesdata = [];
+
+                    for (let [key, value] of entries) {
+                      const match = value.replace(/\{\{(.*?)\}\}/, "$1").trim();
+                      let [searching] = await db.query(
+                        "SELECT * FROM flowvariables WHERE flow_id = ?",
+                        [flowid]
+                      );
+                      searching = searching[0];
+
+                      if (!searching) {
+                        console.log("No Variables found");
+                      }
+
+                      const variables = searching.variable;
+                      for (let item of variables) {
+                        if (item.key === match) {
+                          let [mobileData] = await db.query(
+                            "SELECT feedbacks.* FROM feedbacks JOIN pages ON feedbacks.page_id = pages.id WHERE pages.flow_id = ?",
+                            [flowid]
+                          );
+                          const mobileDatas = mobileData[0];
+                          if (mobileDatas) {
+                            let reqVariables = mobileDatas.result[item.key];
+                            reqVariablesdata.push(reqVariables);
+                          }
+                        }
+                      }
+                    }
+
+                    const response = await axios.post(
+                      apiUrls,
+                      reqVariablesdata
+                    );
+
+                    // input[xyz] = response.status;
                   }
                 }
               }
-
-              const response = await axios.post(apiUrl, body);
-              // Handle post response if needed
             }
           }
         }
@@ -335,7 +345,7 @@ async function handleFeedbackData(req, res) {
       "SELECT * FROM feedbacks WHERE page_id = ? AND request_id = ?",
       [page_id, request_id]
     );
-
+    console.log("🚀 ~ handleFeedbackData ~ existingData:", existingData.length);
     if (existingData.length > 1) {
       // Update existing feedback
       await db.query(
